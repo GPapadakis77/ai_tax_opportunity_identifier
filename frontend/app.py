@@ -4,19 +4,21 @@ import os
 import sys
 import importlib
 from datetime import datetime, date
+import requests
+import json
+import re
 
-# Add the project root to the PATH to locate modules
-# This is crucial for finding data_ingestion, nlp_processing, etc.
+# --- Project Root Setup ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Force reload modules to ensure the latest changes are picked up
-# This is important when running Streamlit after code changes.
+# --- Module Imports and Initialization ---
 try:
+    # These imports assume you have local files with these names.
+    # If the app is a single file, you might not need these.
     import config
     importlib.reload(config)
-    # IMPORT THE SCRAPER MODULE
     from data_ingestion import legislative_scraper
     importlib.reload(legislative_scraper)
     from nlp_processing import nlp_processor
@@ -26,289 +28,137 @@ try:
     from opportunity_identification import opportunity_identifier
     importlib.reload(opportunity_identifier)
 
-    # Initialize classes
     db_manager_instance = db_manager.DBManager()
     nlp_processor_instance = nlp_processor.NLPProcessor()
     opportunity_identifier_instance = opportunity_identifier.OpportunityIdentifier()
 
 except Exception as e:
-    st.error(f"Error loading modules or initializing classes: {e}")
-    st.stop() # Stop the Streamlit app if there's a problem
+    # This error will show if the local files (config.py, etc.) are not found.
+    st.error(f"Σφάλμα κατά τη φόρτωση των ενοτήτων: {e}")
+    st.info("Βεβαιωθείτε ότι τα αρχεία .py (config, legislative_scraper, κ.λπ.) βρίσκονται στον σωστό κατάλογο.")
+    st.stop()
 
-# Set Streamlit page configuration
 st.set_page_config(layout="wide", page_title="AI Product Opportunity Identifier")
 
-# --- Custom CSS for Grant Thornton Theme (Purple, Grey, White) ---
-st.markdown("""
-<style>
-    /* General Variables for easier theme management */
-    :root {
-        --gt-purple-dark: #4D148C; /* Grant Thornton Primary Purple */
-        --gt-purple-light: #5C2D91; /* Slightly lighter purple for containers */
-        --gt-grey-dark: #333333;   /* Dark Grey for sidebar, input backgrounds */
-        --gt-grey-medium: #666666; /* Medium Grey for table headers, borders */
-        --gt-grey-light: #CCCCCC;  /* Light Grey for button backgrounds, borders */
-        --text-white: #FFFFFF;     /* White text for most elements */
-        --text-black: #000000;     /* Black text for light backgrounds */
-        --accent-border: #999999;  /* Subtle grey for borders */
-    }
+# --- Core Application Functions ---
 
-    /* Main background - Grant Thornton Purple */
-    .stApp {
-        background-color: var(--gt-purple-dark);
-        color: var(--text-white);
-    }
-
-    /* Sidebar background - Dark Grey as requested */
-    .st-emotion-cache-vk32no { /* Target sidebar by class */
-        background-color: var(--gt-grey-dark); /* Dark Grey */
-        color: var(--text-white);
-    }
-    .st-emotion-cache-1wq0a0j { /* Another sidebar class for general elements */
-        background-color: var(--gt-grey-dark);
-        color: var(--text-white);
-    }
-    .st-emotion-cache-16txt4v { /* Sidebar header/title color */
-        color: var(--text-white);
-    }
-    /* "App Control" sidebar title - White as requested */
-    .st-emotion-cache-1wq0a0j h2 { /* Targeting the h2 for sidebar title */
-        color: var(--text-white);
-    }
-
-
-    /* Header text (H1, H2, H3 etc.) - White for strong contrast */
-    h1, h2, h3, h4, h5, h6 {
-        color: var(--text-white);
-    }
-
-    /* General paragraph and list item text - White */
-    p, li, div, span {
-        color: var(--text-white);
-    }
-
-    /* Buttons - Light Grey background, with purple text */
-    .stButton > button {
-        background-color: var(--gt-grey-light); /* Light Grey accent */
-        color: var(--gt-purple-dark); /* Grant Thornton Purple text on button */
-        border-radius: 8px;
-        border: 1px solid var(--accent-border);
-        transition: all 0.2s ease-in-out;
-    }
-    .stButton > button:hover {
-        background-color: var(--text-white); /* White on hover */
-        color: var(--gt-purple-dark); /* Grant Thornton Purple text on hover */
-        border: 1px solid var(--gt-purple-dark);
-    }
-    /* Specific: "Refresh Data & Identify Opportunities" button text to black */
-    .stButton > button[data-testid="stFormSubmitButton"] {
-        color: var(--text-black) !important; /* Force black text */
-    }
-    /* General button text (ensuring all button text is black) */
-    .stButton > button span {
-        color: var(--text-black) !important;
-    }
-
-
-    /* Selectbox/Dropdowns - Dark Grey background, Black text inside, White label */
-    .st-emotion-cache-13ejs9c { /* Container for selectbox */
-        background-color: var(--gt-grey-dark); /* Dark Grey */
-        border-radius: 8px;
-        border: 1px solid var(--gt-grey-medium); /* Medium Grey border */
-    }
-    .st-emotion-cache-1wq0a0j.e1tzin5v2 { /* Selectbox options - background */
-        background-color: var(--gt-grey-dark);
-        color: var(--text-white); /* White text for options in dropdown list */
-    }
-    .st-emotion-cache-1wq0a0j.e1tzin5v2:hover {
-        background-color: var(--gt-grey-medium); /* Slightly lighter grey on hover */
-    }
-    /* Text color inside the selectbox input area (selected value) - BLACK as requested */
-    .st-emotion-cache-1wq0a0j.e1tzin5v2 div[data-baseweb="select"] {
-        color: var(--text-black); /* Black text for the selected value */
-        background-color: var(--gt-grey-light); /* Light grey background for selected value area */
-    }
-    .st-emotion-cache-1wq0a0j.e1tzin5v2 input {
-        color: var(--text-black); /* Black text inside input for selectbox */
-        background-color: var(--gt-grey-light); /* Light grey background for input area */
-    }
-    /* Dropdown labels (e.g., "Filter by Source:") - White as requested */
-    label[data-testid^="stWidgetLabel"] {
-        color: var(--text-white);
-    }
-
-
-    /* Text input - Dark Grey background, White text */
-    .st-emotion-cache-1c7y2kl { /* Text input container */
-        background-color: var(--gt-grey-dark);
-        color: var(--text-white);
-        border-radius: 8px;
-        border: 1px solid var(--gt-grey-medium);
-    }
-    .st-emotion-cache-1c7y2kl input {
-        color: var(--text-white);
-    }
-
-    /* Info/Warning boxes - Dark Grey background, White text, Purple border */
-    .st-emotion-cache-1c7y2kl { /* General message box container */
-        background-color: var(--gt-grey-medium); /* Medium grey for general info/warning */
-        color: var(--text-white);
-        border-left: 5px solid var(--gt-purple-dark); /* Grant Thornton Purple border */
-    }
-    /* "About" info box - Grant Thornton Purple background, White text */
-    .st-emotion-cache-1c7y2kl[data-testid="stInfo"] { /* Target st.info specifically for About box */
-        background-color: var(--gt-purple-dark); /* Grant Thornton Purple as requested */
-        color: var(--text-white); /* White text as requested */
-        border-left: 5px solid var(--text-white); /* White border for contrast */
-    }
-    .st-emotion-cache-1c7y2kl[data-testid="stInfo"] p {
-        color: var(--text-white); /* Ensure text inside info box is white */
-    }
-
-
-    /* Dataframe styling */
-    .st-emotion-cache-cnjsq8 { /* Dataframe container */
-        background-color: var(--gt-purple-light); /* Lighter purple for container */
-        color: var(--text-white);
-        border-radius: 8px;
-        border: 1px solid var(--gt-grey-medium);
-    }
-    .st-emotion-cache-cnjsq8 table {
-        background-color: var(--gt-purple-light);
-        color: var(--text-white);
-    }
-    .st-emotion-cache-cnjsq8 th { /* Table headers - Medium Grey background, White text */
-        background-color: var(--gt-grey-medium);
-        color: var(--text-white);
-    }
-    .st-emotion-cache-cnjsq8 td { /* Table cells - White text */
-        color: var(--text-white);
-    }
-    .st-emotion-cache-cnjsq8 tr:nth-child(even) { /* Zebra striping - Dark Purple */
-        background-color: var(--gt-purple-dark);
-    }
-    .st-emotion-cache-cnjsq8 tr:nth-child(odd) { /* Zebra striping - Lighter Purple */
-        background-color: var(--gt-purple-light);
-    }
-    .st-emotion-cache-cnjsq8 .header-cell { /* Specific header cell styling */
-        color: var(--text-white);
-        background-color: var(--gt-grey-medium);
-    }
-
-    /* Highlight top 3 rows with Gold, Silver, Bronze */
-    .st-emotion-cache-cnjsq8 tbody tr:nth-child(1) {
-        background-color: #FFD700 !important; /* Gold */
-        color: var(--text-black) !important; /* Black text for readability on gold */
-    }
-    .st-emotion-cache-cnjsq8 tbody tr:nth-child(1) td {
-        color: var(--text-black) !important;
-    }
-
-    .st-emotion-cache-cnjsq8 tbody tr:nth-child(2) {
-        background-color: #C0C0C0 !important; /* Silver */
-        color: var(--text-black) !important; /* Black text for readability on silver */
-    }
-    .st-emotion-cache-cnjsq8 tbody tr:nth-child(2) td {
-        color: var(--text-black) !important;
-    }
-
-    .st-emotion-cache-cnjsq8 tbody tr:nth-child(3) {
-        background-color: #CD7F32 !important; /* Bronze */
-        color: var(--text-white) !important; /* White text for readability on bronze */
-    }
-    .st-emotion-cache-cnjsq8 tbody tr:nth-child(3) td {
-        color: var(--text-white) !important;
-    }
-
-
-    /* Download button text - Black */
-    .stDownloadButton > button {
-        color: var(--text-black) !important; /* Force black text */
-    }
-    .stDownloadButton > button span {
-        color: var(--text-black) !important;
-    }
-
-
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: var(--gt-purple-light);
-    }
-    ::-webkit-scrollbar-thumb {
-        background: var(--gt-grey-light);
-        border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--text-white);
-    }
-
-</style>
-""", unsafe_allow_html=True)
-
-
-# --- Data Refresh Function ---
 def run_pipeline():
-    """
-    Executes the entire pipeline: scraping, NLP, opportunity identification, storage.
-    """
-    with st.spinner("Executing data collection & analysis process... This might take a moment."):
-        # 1. Run Scraper - Call the function from the imported legislative_scraper module
-        latest_legislative_news_df = legislative_scraper.get_latest_legislative_news(current_config=config, filter_by_current_date=False) # Process all recent data
+    """Scrapes, processes, and stores new opportunity data."""
+    st.info("Εκτελείται η διαδικασία συλλογής & ανάλυσης δεδομένων... Αυτό μπορεί να διαρκέσει μερικά λεπτά.")
+    
+    latest_legislative_news_df = legislative_scraper.get_latest_legislative_news(current_config=config, filter_by_current_date=False)
 
-        # 2. NLP Processing
-        processed_df = pd.DataFrame()
-        if not latest_legislative_news_df.empty:
-            processed_df = nlp_processor_instance.process_dataframe(latest_legislative_news_df)
-        
-        # 3. Opportunity Identification & Scoring
-        identified_opportunities_df = pd.DataFrame()
-        if not processed_df.empty:
-            identified_opportunities_df = opportunity_identifier_instance.identify_and_score_opportunities(processed_df)
+    processed_df = pd.DataFrame()
+    if not latest_legislative_news_df.empty:
+        processed_df = nlp_processor_instance.process_dataframe(latest_legislative_news_df)
+    
+    identified_opportunities_df = pd.DataFrame()
+    if not processed_df.empty:
+        identified_opportunities_df = opportunity_identifier_instance.identify_and_score_opportunities(processed_df)
 
-        # 4. Save to database
-        db_manager_instance.connect()
-        db_manager_instance.create_table() # Ensure table is updated (drops and recreates)
-        if not processed_df.empty:
-            # Ensure processed_df has the opportunity_score and opportunity_type columns
-            for col in ['opportunity_score', 'opportunity_type']:
-                if col not in processed_df.columns:
-                    processed_df[col] = None
-            db_manager_instance.insert_opportunities(processed_df)
-        db_manager_instance.close()
+    db_manager_instance.connect()
+    db_manager_instance.create_table()
+    if not identified_opportunities_df.empty:
+        db_manager_instance.insert_opportunities(identified_opportunities_df)
+    db_manager_instance.close()
 
-    st.success("Process completed! Data refreshed.")
+    st.success("Η διαδικασία ολοκληρώθηκε! Τα δεδομένα ανανεώθηκαν.")
     return identified_opportunities_df
 
-# --- Main Application Logic ---
+def generate_gemini_response(chat_history, api_key):
+    """Generates a response from the Gemini API based on chat history."""
+    if not api_key:
+        return "Παρακαλώ εισαγάγετε το Gemini API Key σας στην πλαϊνή μπάρα για να χρησιμοποιήσετε το chatbot."
+
+    api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "contents": chat_history,
+        "generationConfig": {
+            "temperature": 0.6,
+            "maxOutputTokens": 1024
+        }
+    }
+
+    try:
+        response = requests.post(f"{api_url}?key={api_key}", headers=headers, data=json.dumps(payload))
+        response.raise_for_status()
+        result = response.json()
+
+        if result.get("candidates") and result["candidates"][0].get("content", {}).get("parts"):
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+        elif result.get("promptFeedback", {}).get("blockReason"):
+            return f"Η απάντηση του μοντέλου μπλοκαρίστηκε λόγω: {result['promptFeedback']['blockReason']}. Παρακαλώ δοκιμάστε διαφορετική ερώτηση."
+        else:
+            st.error(f"Λήφθηκε μη αναμενόμενη δομή απάντησης από το API: {result}")
+            return "Δεν ήταν δυνατή η λήψη έγκυρης απάντησης από το μοντέλο."
+            
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 400:
+            error_details = e.response.json()
+            return f"Σφάλμα API (400 - Bad Request): Το αίτημα ήταν εσφαλμένο. Αυτό μπορεί να οφείλεται σε μη έγκυρο κλειδί API. Παρακαλώ ελέγξτε το κλειδί σας. Λεπτομέρειες: {error_details}"
+        elif e.response.status_code == 403:
+             return f"Σφάλμα API (403 - Forbidden): Το κλειδί API δεν έχει δικαιώματα για το Gemini API. Βεβαιωθείτε ότι το 'Generative Language API' είναι ενεργοποιημένο στο Google Cloud project σας."
+        return f"Η κλήση API απέτυχε με σφάλμα HTTP: {e}. Ελέγξτε το κλειδί API και τη σύνδεσή σας στο διαδίκτυο."
+    except Exception as e:
+        return f"Προέκυψε ένα μη αναμενόμενο σφάλμα κατά την κλήση API: {e}"
+
+# --- Main Streamlit UI ---
+
 st.header("AI Product Opportunity Identifier 💡")
-st.markdown("Discovering new opportunities in tax and economic sectors.")
+st.markdown("Ανακαλύπτοντας νέες ευκαιρίες στους φορολογικούς και οικονομικούς τομείς.")
 
-# Sidebar for options
-st.sidebar.title("App Control")
-refresh_button = st.sidebar.button("Refresh Data & Identify Opportunities", help="Click to re-run the entire data pipeline and find new opportunities.")
-st.sidebar.markdown("---")
-st.sidebar.subheader("About")
-st.sidebar.info(
-    "This application automatically scrapes tax and economic news, processes it with NLP, "
-    "identifies potential consulting opportunities, and displays them in an interactive dashboard."
-)
+# --- Sidebar ---
+with st.sidebar:
+    st.title("Πίνακας Ελέγχου")
 
-# Initialize session state for the button click if not already
-if 'refresh_button_clicked' not in st.session_state:
-    st.session_state['refresh_button_clicked'] = False
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY")
+    if not gemini_api_key:
+        gemini_api_key = st.text_input("Εισαγάγετε το Gemini API Key:", type="password", help="Μπορείτε να βρείτε το κλειδί σας στο Google AI Studio.")
+        if not gemini_api_key:
+            st.warning("Παρακαλώ εισαγάγετε το κλειδί API για να ενεργοποιήσετε το chatbot.")
+        else:
+            st.success("Το κλειδί API δόθηκε.")
+    else:
+        st.success("Το κλειδί API φορτώθηκε με επιτυχία.")
 
-# Logic to trigger pipeline on button click
-if refresh_button:
-    st.session_state['refresh_button_clicked'] = True
+    if st.button("Ανανέωση Δεδομένων & Εντοπισμός Ευκαιριών", help="Εκτελέστε ξανά όλη τη διαδικασία για να βρείτε νέες ευκαιρίες."):
+        st.session_state['refresh_data'] = True
+
+    st.markdown("---")
+    st.subheader("Σχετικά με την Εφαρμογή")
+    st.info(
+        "Αυτή η εφαρμογή συλλέγει αυτόματα φορολογικές και οικονομικές ειδήσεις, τις επεξεργάζεται με NLP, "
+        "εντοπίζει πιθανές συμβουλευτικές ευκαιρίες και τις εμφανίζει σε έναν διαδραστικό πίνακα."
+    )
+    if st.button("Βοήθεια από το Chatbot 💬", help="Ανοίξτε το chat για να κάνετε ερωτήσεις."):
+        st.session_state['show_chatbot'] = not st.session_state.get('show_chatbot', False)
+    st.markdown("---")
+
+# --- Session State Initialization ---
+if 'last_identified_df' not in st.session_state:
+    st.session_state['last_identified_df'] = pd.DataFrame()
+if 'chat_history' not in st.session_state:
+    st.session_state['chat_history'] = []
+if 'show_chatbot' not in st.session_state:
+    st.session_state['show_chatbot'] = False
+if 'refresh_data' not in st.session_state:
+    st.session_state['refresh_data'] = False
+
+# --- Data Loading Logic ---
+if st.session_state.refresh_data:
     identified_opportunities_df = run_pipeline()
-    st.session_state['last_identified_df'] = identified_opportunities_df # Store for re-runs
+    st.session_state['last_identified_df'] = identified_opportunities_df
+    st.session_state.chat_history = []
+    st.session_state.refresh_data = False
+    st.rerun()
 else:
-    # Load data on initial page load or subsequent non-button refreshes
-    if 'last_identified_df' not in st.session_state:
-        with st.spinner("Loading initial data from the database..."):
+    if st.session_state.last_identified_df.empty:
+        with st.spinner("Φόρτωση αρχικών δεδομένων από τη βάση..."):
             db_manager_instance.connect()
             all_stored_data_df = db_manager_instance.fetch_all_opportunities()
             db_manager_instance.close()
@@ -322,76 +172,137 @@ else:
     else:
         identified_opportunities_df = st.session_state['last_identified_df']
 
-
 # --- Display Identified Opportunities ---
-st.subheader("Identified Opportunities Overview")
+st.subheader("Επισκόπηση Εντοπισμένων Ευκαιριών")
 
 if identified_opportunities_df.empty:
-    st.warning("No opportunities found at the moment. Press 'Refresh Data & Identify Opportunities' to start collecting.")
+    st.warning("Δεν βρέθηκαν ευκαιρίες. Πατήστε 'Ανανέωση Δεδομένων' για να ξεκινήσετε.")
 else:
     total_opportunities = len(identified_opportunities_df)
-    st.info(f"Total {total_opportunities} opportunities identified. Showing top results.")
-
-    # Search and Filter section
+    st.info(f"Εμφανίζονται {total_opportunities} εντοπισμένες ευκαιρίες.")
     st.markdown("---")
-    st.subheader("Filter & Search Results")
+    st.subheader("Φίλτρα & Αναζήτηση Αποτελεσμάτων")
     
-    search_query = st.text_input("Search by Title or Keywords:", "")
-
+    search_query = st.text_input("Αναζήτηση με Τίτλο ή Λέξεις-Κλειδιά:", "")
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
-        selected_source = st.selectbox("Filter by Source:", ["All"] + list(identified_opportunities_df['source'].unique()))
+        unique_sources = ["Όλες"] + list(identified_opportunities_df['source'].unique())
+        selected_source = st.selectbox("Φίλτρο ανά Πηγή:", unique_sources)
     with col_filter2:
-        selected_type = st.selectbox("Filter by Opportunity Type:", ["All"] + list(identified_opportunities_df['opportunity_type'].unique()))
+        unique_types = ["Όλοι"] + list(identified_opportunities_df['opportunity_type'].dropna().unique())
+        selected_type = st.selectbox("Φίλτρο ανά Τύπο Ευκαιρίας:", unique_types)
 
     filtered_df = identified_opportunities_df.copy()
-
-    # Apply search filter
     if search_query:
         filtered_df = filtered_df[
             filtered_df['title'].str.contains(search_query, case=False, na=False) |
             filtered_df['keywords'].str.contains(search_query, case=False, na=False)
         ]
-
-    # Apply dropdown filters
-    if selected_source != "All":
+    if selected_source != "Όλες":
         filtered_df = filtered_df[filtered_df['source'] == selected_source]
-    if selected_type != "All":
+    if selected_type != "Όλοι":
         filtered_df = filtered_df[filtered_df['opportunity_type'] == selected_type]
 
     if filtered_df.empty:
-        st.info("No opportunities found matching the selected filters or search query.")
+        st.info("Δεν βρέθηκαν ευκαιρίες που να ταιριάζουν με τα επιλεγμένα φίλτρα.")
     else:
-        # Apply head(10) here to show only the top 10 after filtering
-        filtered_df = filtered_df.head(10) # <-- Apply head(10) here
-
+        display_cols = ['title', 'date', 'source', 'opportunity_score', 'opportunity_type', 'url', 'keywords', 'main_topic']
         st.dataframe(
-            filtered_df[[
-                'title', 'date', 'source', 'opportunity_score', 'opportunity_type', 'url', 'keywords', 'main_topic'
-            ]].style.format({'opportunity_score': "{:.1f}"}),
+            filtered_df[display_cols],
             use_container_width=True,
-            hide_index=True, # Corrected argument
+            hide_index=True,
             column_config={
-                "url": st.column_config.LinkColumn("URL", display_text="Article Link"),
-                "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
-                "opportunity_score": st.column_config.NumberColumn("Score", help="Importance Score (Higher is better)"),
-                "opportunity_type": st.column_config.TextColumn("Opportunity Type"),
-                "title": st.column_config.TextColumn("Title", width="large"),
-                "source": st.column_config.TextColumn("Source"),
-                "keywords": st.column_config.TextColumn("Keywords"),
-                "main_topic": st.column_config.TextColumn("Main Topic")
+                "url": st.column_config.LinkColumn("URL", display_text="Σύνδεσμος"),
+                "date": st.column_config.DateColumn("Ημερομηνία", format="DD/MM/YYYY"),
+                "opportunity_score": st.column_config.NumberColumn("Βαθμολογία", help="Βαθμός Σημαντικότητας (υψηλότερος = καλύτερος)", format="%.1f"),
+                "opportunity_type": "Τύπος",
+                "title": st.column_config.TextColumn("Τίτλος", width="large"),
+                "source": "Πηγή",
+                "keywords": "Λέξεις-Κλειδιά",
+                "main_topic": "Κύριο Θέμα"
             }
         )
-        
-        # Download button for filtered data
         csv_data = filtered_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="Download Filtered Data as CSV",
+            label="Λήψη Δεδομένων ως CSV",
             data=csv_data,
             file_name="identified_opportunities.csv",
-            mime="text/csv",
-            help="Download the currently filtered opportunities as a CSV file."
+            mime="text/csv"
         )
 
 st.markdown("---")
-st.markdown("For more information or technical support, please contact the development team.")
+
+# --- Chatbot Interface ---
+if st.session_state.get('show_chatbot', False):
+    st.subheader("Βοηθός Chatbot 💬")
+    st.markdown("Ρωτήστε με για τις ευκαιρίες που εντοπίστηκαν ή για γενικά φορολογικά/οικονομικά θέματα!")
+
+    initial_greeting = "Okay, I understand. I'm ready to assist with your questions about Greek tax and economic opportunities."
+    
+    if not st.session_state.chat_history:
+        system_prompt = (
+            "You are an AI assistant specialized in Greek tax and economic opportunities. "
+            "Your goal is to provide concise and helpful information based on the provided context. "
+            "If the question is about specific opportunities, refer to the provided context. "
+            "If the context does not contain the answer, state that you cannot find it in the provided information. "
+            "Format your answers clearly using markdown where appropriate."
+        )
+        st.session_state.chat_history.append({"role": "user", "parts": [{"text": system_prompt}]})
+        st.session_state.chat_history.append({"role": "model", "parts": [{"text": initial_greeting}]})
+
+    # Display chat history, but hide the initial system prompt and canned model response
+    for message in st.session_state.chat_history:
+        is_system_prompt = message["role"] == "user" and "specialized in Greek tax" in message["parts"][0]["text"]
+        is_initial_greeting = message["role"] == "model" and message["parts"][0]["text"] == initial_greeting
+        
+        if not is_system_prompt and not is_initial_greeting:
+            with st.chat_message(message["role"]):
+                st.markdown(message["parts"][0]["text"])
+    
+    st.markdown("---")
+    st.markdown("**Κάντε κλικ σε μια ερώτηση για να ξεκινήσετε:**")
+    
+    suggested_questions = [
+        "Ποιες είναι οι τελευταίες αλλαγές στη φορολογική νομοθεσία;",
+        "Συνοψίστε τις σημαντικότερες ευκαιρίες.",
+        "Πείτε μου για ευκαιρίες που σχετίζονται με κίνητρα."
+    ]
+    
+    query_to_send = None
+    cols = st.columns(len(suggested_questions))
+    for i, question in enumerate(suggested_questions):
+        if cols[i].button(question, key=f"suggested_q_{i}"):
+            query_to_send = question
+    
+    if user_input := st.chat_input("Η ερώτησή σας:"):
+        query_to_send = user_input
+
+    if query_to_send:
+        st.session_state.chat_history.append({"role": "user", "parts": [{"text": query_to_send}]})
+        
+        with st.chat_message("user"):
+            st.markdown(query_to_send)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Σκέφτομαι..."):
+                context_df = st.session_state.get('last_identified_df', pd.DataFrame())
+                context_str = ""
+                if not context_df.empty:
+                    context_str = "Context from the database:\n"
+                    for _, row in context_df.head(15).iterrows():
+                        context_str += (
+                            f"- Title: {row.get('title', 'N/A')}\n"
+                            f"  Summary: {row.get('summary', 'N/A')}\n"
+                            f"  Type: {row.get('opportunity_type', 'N/A')}\n"
+                            f"  Score: {row.get('opportunity_score', 0):.1f}\n---\n"
+                        )
+                
+                api_chat_history = st.session_state.chat_history.copy()
+                api_chat_history.insert(-1, {"role": "user", "parts": [{"text": f"Use this context to answer the user's last question:\n{context_str}"}]})
+                api_chat_history.insert(-1, {"role": "model", "parts": [{"text": "Okay, I will use the provided context."}]})
+
+                response_text = generate_gemini_response(api_chat_history, gemini_api_key)
+                st.markdown(response_text)
+        
+        st.session_state.chat_history.append({"role": "model", "parts": [{"text": response_text}]})
+        st.rerun()
