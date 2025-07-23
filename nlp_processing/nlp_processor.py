@@ -2,9 +2,9 @@ import spacy
 import pandas as pd
 import os
 import sys
-from spacy.cli import download as spacy_download # <-- Νέο import
+from spacy.cli import download as spacy_download # <-- Σημαντικό import
 
-# Προσθήκη του ριζικού φακέλου του project στο PATH για να βρίσκει το config
+# Προσθήκη του ριζικού φακέλου του project στο PATH
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -20,22 +20,20 @@ class NLPProcessor:
         model_name = "el_core_news_sm"
         try:
             # Ελέγχουμε αν το μοντέλο είναι ήδη διαθέσιμο
-            spacy.load(model_name)
+            self.nlp = spacy.load(model_name)
             print(f"Το μοντέλο '{model_name}' βρέθηκε και φορτώθηκε.")
         except OSError:
             # Αν δεν βρεθεί, το κατεβάζουμε
             print(f"Το μοντέλο '{model_name}' δεν βρέθηκε. Γίνεται λήψη...")
             spacy_download(model_name)
             print("Η λήψη ολοκληρώθηκε.")
+            self.nlp = spacy.load(model_name)
         
-        # Τώρα το φορτώνουμε με ασφάλεια
-        self.nlp = spacy.load(model_name)
         self.tax_keywords = config.TAX_KEYWORDS
 
     def process_text(self, text):
         """
-        Επεξεργάζεται ένα κείμενο χρησιμοποιώντας spaCy για την εξαγωγή λέξεων-κλειδιών,
-        οντοτήτων (NER) και του βασικού θέματος.
+        Επεξεργάζεται ένα κείμενο χρησιμοποιώντας spaCy.
         """
         if not text or not isinstance(text, str):
             return [], [], None
@@ -65,10 +63,6 @@ class NLPProcessor:
             main_topic = "ΑΑΔΕ / Εφαρμογή Νόμων"
         elif any(kw in keywords for kw in ["πρόγραμμα", "εσπα", "ανάπτυξη", "επιδότηση", "κίνητρα"]):
             main_topic = "Αναπτυξιακά Προγράμματα / Κίνητρα"
-        elif any(kw in keywords for kw in ["προϋπολογισμός", "δαπάνες"]):
-            main_topic = "Δημοσιονομική Πολιτική"
-        elif any(kw in keywords for kw in ["χρέος", "οφειλές"]):
-            main_topic = "Διαχείριση Χρέους"
             
         return keywords, entities, main_topic
 
@@ -82,7 +76,6 @@ class NLPProcessor:
         processed_data = []
         for index, row in df.iterrows():
             text_to_process = row.get('title', '') + " " + (row.get('description', '') or "")
-            
             keywords, entities, main_topic = self.process_text(text_to_process)
             
             processed_row = row.to_dict()
