@@ -102,7 +102,7 @@ GEMINI_API_KEY = "ΤΟ_API_KEY_ΣΑΣ_ΕΔΩ"
 Εκκινήστε τον server του Streamlit με την παρακάτω εντολή:
 
 ```bash
-streamlit run app.py
+streamlit run frontend/app.py
 ```
 
 Η εφαρμογή θα ανοίξει αυτόματα σε μια νέα καρτέλα του browser σας!
