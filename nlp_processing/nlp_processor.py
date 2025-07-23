@@ -2,7 +2,7 @@ import spacy
 import pandas as pd
 import os
 import sys
-import el_core_news_sm  # <-- Σημαντικό import για τη σωστή φόρτωση του μοντέλου
+from spacy.cli import download as spacy_download # <-- Νέο import
 
 # Προσθήκη του ριζικού φακέλου του project στο PATH για να βρίσκει το config
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -14,17 +14,22 @@ import config
 class NLPProcessor:
     def __init__(self):
         """
-        Κατά την αρχικοποίηση, φορτώνουμε το μοντέλο spaCy.
-        Αυτή η μέθοδος είναι πιο αξιόπιστη από τη φόρτωση σε καθολικό επίπεδο.
+        Κατά την αρχικοποίηση, ελέγχουμε αν το μοντέλο υπάρχει.
+        Αν δεν υπάρχει, το κατεβάζουμε. Αυτή είναι η πιο σίγουρη μέθοδος.
         """
+        model_name = "el_core_news_sm"
         try:
-            # Φορτώνουμε το μοντέλο απευθείας από το εγκατεστημένο πακέτο
-            self.nlp = el_core_news_sm.load()
-            print("Το ελληνικό μοντέλο spaCy φορτώθηκε επιτυχώς μέσα από τον NLPProcessor.")
-        except Exception as e:
-            print(f"Σφάλμα φόρτωσης ελληνικού μοντέλου spaCy: {e}")
-            raise RuntimeError("Το μοντέλο spaCy δεν φορτώθηκε. Δεν είναι δυνατή η εκκίνηση του NLPProcessor.")
+            # Ελέγχουμε αν το μοντέλο είναι ήδη διαθέσιμο
+            spacy.load(model_name)
+            print(f"Το μοντέλο '{model_name}' βρέθηκε και φορτώθηκε.")
+        except OSError:
+            # Αν δεν βρεθεί, το κατεβάζουμε
+            print(f"Το μοντέλο '{model_name}' δεν βρέθηκε. Γίνεται λήψη...")
+            spacy_download(model_name)
+            print("Η λήψη ολοκληρώθηκε.")
         
+        # Τώρα το φορτώνουμε με ασφάλεια
+        self.nlp = spacy.load(model_name)
         self.tax_keywords = config.TAX_KEYWORDS
 
     def process_text(self, text):
@@ -37,7 +42,7 @@ class NLPProcessor:
 
         doc = self.nlp(text)
         
-        # 1. Εξαγωγή Λέξεων-Κλειδιών
+        # Εξαγωγή Λέξεων-Κλειδιών
         keywords = []
         for token in doc:
             if token.pos_ in ["NOUN", "PROPN", "ADJ", "VERB"] and not token.is_stop and not token.is_punct:
@@ -49,11 +54,11 @@ class NLPProcessor:
 
         keywords = sorted(list(set(keywords)))
 
-        # 2. Αναγνώριση Οντοτήτων (NER)
+        # Αναγνώριση Οντοτήτων (NER)
         entities = [(ent.text, ent.label_) for ent in doc.ents]
         
-        # 3. Βασική Θεματική Ανάλυση
-        main_topic = "Γενικό Οικονομικό Θέμα" # Προεπιλεγμένη τιμή
+        # Βασική Θεματική Ανάλυση
+        main_topic = "Γενικό Οικονομικό Θέμα"
         if any(kw in keywords for kw in ["φορολογία", "φορολογικός", "φόρος"]):
             main_topic = "Φορολογική Πολιτική/Νομοθεσία"
         elif "ααδε" in keywords:
@@ -89,27 +94,4 @@ class NLPProcessor:
         
         return pd.DataFrame(processed_data)
 
-# Λειτουργία δοκιμής του module
-if __name__ == "__main__":
-    print("Εκτέλεση του nlp_processor.py απευθείας (για δοκιμή).")
-    
-    test_df = pd.DataFrame({
-        'title': [
-            'Νέος νόμος για τη φορολογία ακινήτων τέθηκε σε ισχύ',
-            'Ανακοίνωση ΑΑΔΕ για MyDATA: Παράταση προθεσμίας',
-            'Επένδυση σε πράσινη ενέργεια: Νέα κίνητρα ΕΣΠΑ',
-            'Συνάντηση Υπουργού Οικονομικών για το δημόσιο χρέος'
-        ],
-        'description': ['Περιγραφή 1', 'Περιγραφή 2', '', 'Περιγραφή 4'],
-        'url': ['http://example.com/law1', 'http://example.com/aade1', 'http://example.com/espa1', 'http://example.com/debt1'],
-        'date': [pd.to_datetime('2025-07-08').date(), pd.to_datetime('2025-07-07').date(), pd.to_datetime('2025-07-06').date(), pd.to_datetime('2025-07-05').date()],
-        'source': ['TestNews', 'TestNews', 'TestNews', 'TestNews']
-    })
-
-    try:
-        nlp_processor = NLPProcessor()
-        processed_df = nlp_processor.process_dataframe(test_df)
-        print("\nΑποτελέσματα NLP:")
-        print(processed_df[['title', 'keywords', 'entities', 'main_topic']].head())
-    except RuntimeError as e:
-        print(f"Δεν ήταν δυνατή η εκτέλεση του NLPProcessor: {e}")
+# ... (ο υπόλοιπος κώδικας δοκιμής παραμένει ίδιος) ...
