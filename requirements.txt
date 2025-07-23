@@ -4,3 +4,5 @@ pandas
 spacy
 streamlit
 pyngrok
+# Πιο αξιόπιστος τρόπος για την εγκατάσταση του ελληνικού μοντέλου
+el_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/el_core_news_sm-3.7.0/el_core_news_sm-3.7.0.tar.gz
