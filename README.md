@@ -56,7 +56,7 @@
 Ανοίξτε ένα terminal και εκτελέστε την παρακάτω εντολή για να κατεβάσετε τον κώδικα:
 
 ```bash
-git clone <URL_ΤΟΥ_REPOSITORY_ΣΑΣ>
+git clone https://github.com/GPapadakis77/ai_tax_opportunity_identifier.git
 cd <ΟΝΟΜΑ_ΦΑΚΕΛΟΥ_PROJECT>
 ```
 
