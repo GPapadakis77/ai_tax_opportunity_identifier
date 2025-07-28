@@ -2,9 +2,8 @@ import spacy
 import pandas as pd
 import os
 import sys
-from spacy.cli import download as spacy_download # <-- Σημαντικό import
 
-# Προσθήκη του ριζικού φακέλου του project στο PATH
+# Add the project root to the PATH
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -14,33 +13,30 @@ import config
 class NLPProcessor:
     def __init__(self):
         """
-        Κατά την αρχικοποίηση, ελέγχουμε αν το μοντέλο υπάρχει.
-        Αν δεν υπάρχει, το κατεβάζουμε. Αυτή είναι η πιο σίγουρη μέθοδος.
+        Loads the spaCy model, assuming it's already installed via requirements.txt.
+        This is the correct and stable method for Streamlit Cloud.
         """
         model_name = "el_core_news_sm"
         try:
-            # Ελέγχουμε αν το μοντέλο είναι ήδη διαθέσιμο
             self.nlp = spacy.load(model_name)
-            print(f"Το μοντέλο '{model_name}' βρέθηκε και φορτώθηκε.")
+            print(f"Model '{model_name}' loaded successfully.")
         except OSError:
-            # Αν δεν βρεθεί, το κατεβάζουμε
-            print(f"Το μοντέλο '{model_name}' δεν βρέθηκε. Γίνεται λήψη...")
-            spacy_download(model_name)
-            print("Η λήψη ολοκληρώθηκε.")
-            self.nlp = spacy.load(model_name)
+            print(f"Failed to load model '{model_name}'. Make sure it's in your requirements.txt.")
+            # Re-raising the error is important to stop the app if the model is missing.
+            raise
         
         self.tax_keywords = config.TAX_KEYWORDS
 
     def process_text(self, text):
         """
-        Επεξεργάζεται ένα κείμενο χρησιμοποιώντας spaCy.
+        Processes a single string of text using spaCy.
         """
         if not text or not isinstance(text, str):
             return [], [], None
 
         doc = self.nlp(text)
         
-        # Εξαγωγή Λέξεων-Κλειδιών
+        # Keyword Extraction
         keywords = []
         for token in doc:
             if token.pos_ in ["NOUN", "PROPN", "ADJ", "VERB"] and not token.is_stop and not token.is_punct:
@@ -52,23 +48,23 @@ class NLPProcessor:
 
         keywords = sorted(list(set(keywords)))
 
-        # Αναγνώριση Οντοτήτων (NER)
+        # Named Entity Recognition (NER)
         entities = [(ent.text, ent.label_) for ent in doc.ents]
         
-        # Βασική Θεματική Ανάλυση
-        main_topic = "Γενικό Οικονομικό Θέμα"
+        # Basic Topic Analysis
+        main_topic = "General Economic Topic"
         if any(kw in keywords for kw in ["φορολογία", "φορολογικός", "φόρος"]):
-            main_topic = "Φορολογική Πολιτική/Νομοθεσία"
+            main_topic = "Tax Policy/Legislation"
         elif "ααδε" in keywords:
-            main_topic = "ΑΑΔΕ / Εφαρμογή Νόμων"
+            main_topic = "AADE / Law Enforcement"
         elif any(kw in keywords for kw in ["πρόγραμμα", "εσπα", "ανάπτυξη", "επιδότηση", "κίνητρα"]):
-            main_topic = "Αναπτυξιακά Προγράμματα / Κίνητρα"
+            main_topic = "Development Programs / Incentives"
             
         return keywords, entities, main_topic
 
     def process_dataframe(self, df):
         """
-        Επεξεργάζεται ένα DataFrame και προσθέτει στήλες με τα αποτελέσματα του NLP.
+        Processes a DataFrame, adding columns with NLP results.
         """
         if df.empty:
             return df
@@ -86,5 +82,3 @@ class NLPProcessor:
             processed_data.append(processed_row)
         
         return pd.DataFrame(processed_data)
-
-# ... (ο υπόλοιπος κώδικας δοκιμής παραμένει ίδιος) ...
