@@ -56,7 +56,7 @@
 Ανοίξτε ένα terminal και εκτελέστε την παρακάτω εντολή για να κατεβάσετε τον κώδικα:
 
 ```bash
-git clone <URL_ΤΟΥ_REPOSITORY_ΣΑΣ>
+git clone https://github.com/GPapadakis77/ai_tax_opportunity_identifier.git
 cd <ΟΝΟΜΑ_ΦΑΚΕΛΟΥ_PROJECT>
 ```
 
@@ -102,7 +102,7 @@ GEMINI_API_KEY = "ΤΟ_API_KEY_ΣΑΣ_ΕΔΩ"
 Εκκινήστε τον server του Streamlit με την παρακάτω εντολή:
 
 ```bash
-streamlit run app.py
+streamlit run frontend/app.py
 ```
 
 Η εφαρμογή θα ανοίξει αυτόματα σε μια νέα καρτέλα του browser σας!
