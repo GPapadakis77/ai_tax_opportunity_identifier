@@ -7,6 +7,7 @@ from datetime import datetime, date
 import requests
 import json
 import re
+import time # <-- ΑΠΑΡΑΙΤΗΤΗ ΠΡΟΣΘΗΚΗ
 
 # --- Project Root Setup ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -44,68 +45,74 @@ st.set_page_config(layout="wide", page_title="AI Product Opportunity Identifier"
 
 def run_pipeline():
     """Scrapes, processes, and stores new opportunity data."""
-    st.info("Εκτελείται η διαδικασία συλλογής & ανάλυσης δεδομένων... Αυτό μπορεί να διαρκέσει μερικά λεπτά.")
-    
-    latest_legislative_news_df = legislative_scraper.get_latest_legislative_news(current_config=config, filter_by_current_date=False)
+    with st.spinner("Εκτελείται η διαδικασία συλλογής & ανάλυσης δεδομένων... Αυτό μπορεί να διαρκέσει μερικά λεπτά."):
+        latest_legislative_news_df = legislative_scraper.get_latest_legislative_news(current_config=config, filter_by_current_date=False)
 
-    processed_df = pd.DataFrame()
-    if not latest_legislative_news_df.empty:
-        processed_df = nlp_processor_instance.process_dataframe(latest_legislative_news_df)
-    
-    identified_opportunities_df = pd.DataFrame()
-    if not processed_df.empty:
-        identified_opportunities_df = opportunity_identifier_instance.identify_and_score_opportunities(processed_df)
+        processed_df = pd.DataFrame()
+        if not latest_legislative_news_df.empty:
+            processed_df = nlp_processor_instance.process_dataframe(latest_legislative_news_df)
+        
+        identified_opportunities_df = pd.DataFrame()
+        if not processed_df.empty:
+            identified_opportunities_df = opportunity_identifier_instance.identify_and_score_opportunities(processed_df)
 
-    db_manager_instance.connect()
-    db_manager_instance.create_table()
-    if not identified_opportunities_df.empty:
-        db_manager_instance.insert_opportunities(identified_opportunities_df)
-    db_manager_instance.close()
+        db_manager_instance.connect()
+        db_manager_instance.create_table()
+        if not identified_opportunities_df.empty:
+            db_manager_instance.insert_opportunities(identified_opportunities_df)
+        db_manager_instance.close()
 
     st.success("Η διαδικασία ολοκληρώθηκε! Τα δεδομένα ανανεώθηκαν.")
     return identified_opportunities_df
 
-def generate_gemini_response(chat_history, api_key):
-    """Generates a response from the Gemini API based on chat history."""
+# ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+# --- ΑΛΛΑΓΗ 1: Η ΣΥΝΑΡΤΗΣΗ ΑΝΤΙΚΑΤΑΣΤΑΘΗΚΕ ΜΕ ΤΗ ΣΩΣΤΗ, ΠΙΟ ΣΤΑΘΕΡΗ ΕΚΔΟΣΗ ---
+def generate_gemini_response(chat_history, api_key, context_str):
+    """Generates a response from the Gemini API with a retry mechanism and context."""
     if not api_key:
-        return "Παρακαλώ εισαγάγετε το Gemini API Key σας στην πλαϊνή μπάρα για να χρησιμοποιήσετε το chatbot."
+        return "Παρακαλώ εισαγάγετε το Gemini API Key σας στην πλαϊνή μπάρα."
 
-    api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     
-    headers = {
-        "Content-Type": "application/json"
-    }
+    headers = {"Content-Type": "application/json"}
     
+    api_chat_history = chat_history.copy()
+    last_user_message = api_chat_history.pop()
+    
+    contextual_prompt = (
+        f"Με βάση το παρακάτω πλαίσιο (context), απάντησε στην ερώτηση του χρήστη. Αν η απάντηση δεν είναι στο πλαίσιο, χρησιμοποίησε τη γενική σου γνώση.\n"
+        f"--- ΠΛΑΙΣΙΟ ---\n{context_str if context_str else 'Δεν υπάρχει διαθέσιμο πλαίσιο.'}\n--- ΤΕΛΟΣ ΠΛΑΙΣΙΟΥ ---\n\n"
+        f"Ερώτηση Χρήστη: {last_user_message['parts'][0]['text']}"
+    )
+    api_chat_history.append({"role": "user", "parts": [{"text": contextual_prompt}]})
+
     payload = {
-        "contents": chat_history,
-        "generationConfig": {
-            "temperature": 0.6,
-            "maxOutputTokens": 1024
-        }
+        "contents": api_chat_history,
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1500}
     }
 
-    try:
-        response = requests.post(f"{api_url}?key={api_key}", headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-        result = response.json()
+    for attempt in range(3):
+        try:
+            response = requests.post(api_url, headers=headers, data=json.dumps(payload), timeout=30)
+            if response.status_code == 503:
+                raise requests.exceptions.HTTPError(f"503 Server Error: Service Unavailable")
+            response.raise_for_status()
+            result = response.json()
 
-        if result.get("candidates") and result["candidates"][0].get("content", {}).get("parts"):
-            return result["candidates"][0]["content"]["parts"][0]["text"]
-        elif result.get("promptFeedback", {}).get("blockReason"):
-            return f"Η απάντηση του μοντέλου μπλοκαρίστηκε λόγω: {result['promptFeedback']['blockReason']}. Παρακαλώ δοκιμάστε διαφορετική ερώτηση."
-        else:
-            st.error(f"Λήφθηκε μη αναμενόμενη δομή απάντησης από το API: {result}")
-            return "Δεν ήταν δυνατή η λήψη έγκυρης απάντησης από το μοντέλο."
-            
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 400:
-            error_details = e.response.json()
-            return f"Σφάλμα API (400 - Bad Request): Το αίτημα ήταν εσφαλμένο. Αυτό μπορεί να οφείλεται σε μη έγκυρο κλειδί API. Παρακαλώ ελέγξτε το κλειδί σας. Λεπτομέρειες: {error_details}"
-        elif e.response.status_code == 403:
-             return f"Σφάλμα API (403 - Forbidden): Το κλειδί API δεν έχει δικαιώματα για το Gemini API. Βεβαιωθείτε ότι το 'Generative Language API' είναι ενεργοποιημένο στο Google Cloud project σας."
-        return f"Η κλήση API απέτυχε με σφάλμα HTTP: {e}. Ελέγξτε το κλειδί API και τη σύνδεσή σας στο διαδίκτυο."
-    except Exception as e:
-        return f"Προέκυψε ένα μη αναμενόμενο σφάλμα κατά την κλήση API: {e}"
+            if result.get("candidates") and result["candidates"][0].get("content", {}).get("parts"):
+                return result["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                return "Λήφθηκε μη αναμενόμενη απάντηση από το API."
+
+        except requests.exceptions.RequestException as e:
+            if attempt < 2:
+                print(f"Απόπειρα {attempt + 1} απέτυχε: {e}. Επανάληψη σε 2 δευτερόλεπτα...")
+                time.sleep(2)
+            else:
+                return f"Η κλήση API απέτυχε μετά από πολλαπλές προσπάθειες: {e}."
+    
+    return "Η υπηρεσία του API δεν είναι διαθέσιμη μετά από πολλαπλές προσπάθειες."
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # --- Main Streamlit UI ---
 
@@ -137,6 +144,7 @@ with st.sidebar:
     )
     if st.button("Βοήθεια από το Chatbot 💬", help="Ανοίξτε το chat για να κάνετε ερωτήσεις."):
         st.session_state['show_chatbot'] = not st.session_state.get('show_chatbot', False)
+        st.rerun() # Added for smoother toggle
     st.markdown("---")
 
 # --- Session State Initialization ---
@@ -217,9 +225,6 @@ else:
                 "opportunity_score": st.column_config.NumberColumn("Βαθμολογία", help="Βαθμός Σημαντικότητας (υψηλότερος = καλύτερος)", format="%.1f"),
                 "opportunity_type": "Τύπος",
                 "title": st.column_config.TextColumn("Τίτλος", width="large"),
-                "source": "Πηγή",
-                "keywords": "Λέξεις-Κλειδιά",
-                "main_topic": "Κύριο Θέμα"
             }
         )
         csv_data = filtered_df.to_csv(index=False).encode('utf-8')
@@ -233,31 +238,25 @@ else:
 st.markdown("---")
 
 # --- Chatbot Interface ---
-if st.session_state.get('show_chatbot', False):
+if st.session_state.show_chatbot:
     st.subheader("Βοηθός Chatbot 💬")
     st.markdown("Ρωτήστε με για τις ευκαιρίες που εντοπίστηκαν ή για γενικά φορολογικά/οικονομικά θέματα!")
-
-    initial_greeting = "Okay, I understand. I'm ready to assist with your questions about Greek tax and economic opportunities."
     
     if not st.session_state.chat_history:
+        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+        # --- ΑΛΛΑΓΗ 2: ΟΙ ΟΔΗΓΙΕΣ ΕΓΙΝΑΝ ΠΙΟ ΕΞΥΠΝΕΣ ---
         system_prompt = (
-            "You are an AI assistant specialized in Greek tax and economic opportunities. "
-            "Your goal is to provide concise and helpful information based on the provided context. "
-            "If the question is about specific opportunities, refer to the provided context. "
-            "If the context does not contain the answer, state that you cannot find it in the provided information. "
-            "Format your answers clearly using markdown where appropriate."
+            "You are an expert AI assistant for Greek tax and economic topics. Your goal is to provide concise and helpful information. "
+            "The user will provide you with context from a database along with their question. Base your answer primarily on this context. "
+            "If the question is general and the answer is NOT in the context, then you are allowed to use your own general knowledge to provide an accurate answer."
         )
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         st.session_state.chat_history.append({"role": "user", "parts": [{"text": system_prompt}]})
-        st.session_state.chat_history.append({"role": "model", "parts": [{"text": initial_greeting}]})
+        st.session_state.chat_history.append({"role": "model", "parts": [{"text": "Καλησπέρα! Είμαι έτοιμος να απαντήσω στις ερωτήσεις σας."}]})
 
-    # Display chat history, but hide the initial system prompt and canned model response
-    for message in st.session_state.chat_history:
-        is_system_prompt = message["role"] == "user" and "specialized in Greek tax" in message["parts"][0]["text"]
-        is_initial_greeting = message["role"] == "model" and message["parts"][0]["text"] == initial_greeting
-        
-        if not is_system_prompt and not is_initial_greeting:
-            with st.chat_message(message["role"]):
-                st.markdown(message["parts"][0]["text"])
+    for message in st.session_state.chat_history[2:]: # Display only user-facing messages
+        with st.chat_message(message["role"]):
+            st.markdown(message["parts"][0]["text"])
     
     st.markdown("---")
     st.markdown("**Κάντε κλικ σε μια ερώτηση για να ξεκινήσετε:**")
@@ -285,24 +284,17 @@ if st.session_state.get('show_chatbot', False):
 
         with st.chat_message("assistant"):
             with st.spinner("Σκέφτομαι..."):
-                context_df = st.session_state.get('last_identified_df', pd.DataFrame())
+                # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+                # --- ΑΛΛΑΓΗ 3: ΤΟ CONTEXT ΣΤΕΛΝΕΤΑΙ ΠΛΕΟΝ ΜΕ ΚΑΘΑΡΟ ΤΡΟΠΟ ---
+                context_df = filtered_df
                 context_str = ""
                 if not context_df.empty:
-                    context_str = "Context from the database:\n"
-                    for _, row in context_df.head(15).iterrows():
-                        context_str += (
-                            f"- Title: {row.get('title', 'N/A')}\n"
-                            f"  Summary: {row.get('summary', 'N/A')}\n"
-                            f"  Type: {row.get('opportunity_type', 'N/A')}\n"
-                            f"  Score: {row.get('opportunity_score', 0):.1f}\n---\n"
-                        )
+                    for _, row in context_df.head(10).iterrows():
+                        context_str += f"- Τίτλος: {row.get('title', 'N/A')}, Σκορ: {row.get('opportunity_score', 0):.1f}\n"
                 
-                api_chat_history = st.session_state.chat_history.copy()
-                api_chat_history.insert(-1, {"role": "user", "parts": [{"text": f"Use this context to answer the user's last question:\n{context_str}"}]})
-                api_chat_history.insert(-1, {"role": "model", "parts": [{"text": "Okay, I will use the provided context."}]})
-
-                response_text = generate_gemini_response(api_chat_history, gemini_api_key)
+                response_text = generate_gemini_response(st.session_state.chat_history, gemini_api_key, context_str)
                 st.markdown(response_text)
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         st.session_state.chat_history.append({"role": "model", "parts": [{"text": response_text}]})
         st.rerun()
