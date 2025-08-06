@@ -71,7 +71,8 @@ class NLPProcessor:
 
         processed_data = []
         for index, row in df.iterrows():
-            text_to_process = row.get('title', '') + " " + (row.get('description', '') or "")
+            # Combine title and full_text for a more complete analysis
+            text_to_process = (str(row.get('title', '')) + ' ' + str(row.get('full_text', ''))).strip()
             keywords, entities, main_topic = self.process_text(text_to_process)
             
             processed_row = row.to_dict()
