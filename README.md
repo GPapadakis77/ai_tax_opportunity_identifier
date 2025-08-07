@@ -1,7 +1,7 @@
 # AI Product Opportunity Identifier 💡
 
 ## Εισαγωγή
-ΔΟΚΙΜΑΣΕ ΤΗΝ ΕΦΑΡΜΟΓΗ ΕΔΩ:https://aitaxopportunityidentifier-3jptc6skjajqmxu6bjmlte.streamlit.app/
+ΔΟΚΙΜΑΣΕ ΤΗΝ ΕΦΑΡΜΟΓΗ ΕΔΩ:https://aitaxopportunityidentifier-8vtsmkhbwvqewpexi5fdnu.streamlit.app/
 
 Το **AI Product Opportunity Identifier** είναι ένα καινοτόμο εργαλείο βασισμένο στην Τεχνητή Νοημοσύνη, με στόχο τον προληπτικό εντοπισμό νέων ευκαιριών για φορολογικές συμβουλευτικές υπηρεσίες στην ελληνική αγορά.
 
